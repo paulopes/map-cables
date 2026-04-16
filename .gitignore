@@ -1,0 +1,4 @@
+*.kmz
+*.kml
+.DS_Store
+Thumbs.db

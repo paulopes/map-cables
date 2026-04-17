@@ -102,6 +102,7 @@
         <h3>Map Cables</h3>
         <input type="file" id="fileInput" accept=".kmz,.kml" multiple/>
         <button id="saveHtml" onclick="saveSnapshot()">Save Snapshot</button>
+        <button id="unselectAll" onclick="unselectAllFeatures()">Unselect All</button>
         <div id="tree"></div>
     </div>
 
@@ -116,6 +117,11 @@
         const featureDistancesByFilename = {};
         let globalIdCounter = 1;
         let map = null;
+        let initialized = false;
+        let minLat = 91.0;
+        let minLng = 181.0;
+        let maxLat = -91.0;
+        let maxLng = -181.0;
 
         function bbox(coords) {
             const bounds = coords.reduce((acc, coord) => {
@@ -187,9 +193,9 @@
                 children.appendChild(ul);
                 li.appendChild(children);
             } else {
-                const distance = featureDistancesByFilename[filename][data.id]
+                const distance = featureDistancesByFilename[filename][data.id];
                 li.textContent = `${data.text} = ${distance.toLocaleString(undefined, { maximumFractionDigits: 2 })} ft`;
-                li.className = "leaf"
+                li.className = "leaf";
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
                 checkbox.addEventListener('change', function(e) {
@@ -219,6 +225,9 @@
         }
 
         function persistMapState(when) {
+            document.querySelectorAll('[data-map-state]').forEach(function(el) {
+                el.remove();
+            })
             const mapStateScript = document.createElement('script');
             mapStateScript.setAttribute('data-map-state', when);
             mapStateScript.type = 'application/json';
@@ -282,26 +291,42 @@
 
         function persistTree(filename) {
             const treeData = treeDataByFilename[filename];
+            document.querySelectorAll(`[data-tree="${filename}"]`).forEach(function(el) {
+                el.remove();
+            })
             const treeScript = document.createElement('script');
             treeScript.setAttribute('data-tree', filename);
             treeScript.type = 'application/json';
             const treeFeatures = treeFeaturesByFilename[filename];
             const clickedFeatureId = clickedFeatureIdByFilename.hasOwnProperty(filename) ? clickedFeatureIdByFilename[filename] : null;
-            const selectedFeaturesDistance = selectedFeaturesDistancesByFilename.hasOwnProperty[filename] ? selectedFeaturesDistancesByFilename[filename] : {};
-            const featureDistances = featureDistancesByFilename.hasOwnProperty[filename] ? featureDistancesByFilename[filename] : {};
-            treeScript.textContent = JSON.stringify({treeData, treeFeatures, clickedFeatureId, selectedFeaturesDistance, featureDistances});
+            const selectedFeaturesDistances = selectedFeaturesDistancesByFilename.hasOwnProperty(filename) ? selectedFeaturesDistancesByFilename[filename] : {};
+            const featureDistances = featureDistancesByFilename.hasOwnProperty(filename) ? featureDistancesByFilename[filename] : {};
+            treeScript.textContent = JSON.stringify({treeData, treeFeatures, clickedFeatureId, selectedFeaturesDistances, featureDistances});
             document.body.appendChild(treeScript);
         }
 
         function restoreTrees() {
             document.querySelectorAll("[data-tree]").forEach(function(tree) {
                 const filename = tree.getAttribute("data-tree");
-                const {treeData, treeFeatures,  clickedFeatureId, selectedFeaturesDistance, featureDistances} = JSON.parse(document.querySelector(`[data-tree="${filename}"]`).textContent);
+                const {treeData, treeFeatures,  clickedFeatureId, selectedFeaturesDistances, featureDistances} = JSON.parse(document.querySelector(`[data-tree="${filename}"]`).textContent);
+                
                 if (treeData) {
+                    if (!treeDataByFilename.hasOwnProperty(filename)) {
+                        treeDataByFilename[filename] = {}
+                    }
                     treeDataByFilename[filename] = treeData;
                 }
                 if (treeFeatures) {
+                    if (!treeFeaturesByFilename.hasOwnProperty(filename)) {
+                        treeFeaturesByFilename[filename] = {}
+                    }
                     treeFeaturesByFilename[filename] = treeFeatures;
+                }
+                if (featureDistances) {
+                    if (!featureDistancesByFilename.hasOwnProperty(filename)) {
+                        featureDistancesByFilename[filename] = {}
+                    }
+                    featureDistancesByFilename[filename] = featureDistances;
                 }
                 const maxIdCounter = Object.keys(treeFeatures).reduce(function(a, b){ return a > b ? a : b });
                 if (maxIdCounter > globalIdCounter) {
@@ -316,15 +341,14 @@
                 if (clickedFeatureId) {
                     clickFeature(filename, clickedFeatureId);
                 }
-                if (selectedFeaturesDistance) {
-                    for (const featureId in selectedFeaturesDistance) {
+                if (selectedFeaturesDistances) {
+                    for (const featureId in selectedFeaturesDistances) {
+                        const checkbox = document.querySelector(`[data-feature-id="${featureId}"] input[type="checkbox"]`);
+                        checkbox.checked = true;
                         selectFeature(filename, featureId);
                     }
                 }
-                if (featureDistances) {
-                    featureDistancesByFilename[filename] = featureDistances;
-                }
-            })
+            });
         }
 
         function unclickFeature(filename) {
@@ -332,8 +356,8 @@
             const featureId = clickedFeatureId;
             const featureSource = `${featureId}-source`;
             const newTreeItemEl = document.querySelector(`[data-feature-id="${featureId}"]`);
-            const selectedFeaturesDistance = selectedFeaturesDistancesByFilename.hasOwnProperty[filename] ? selectedFeaturesDistancesByFilename[filename] : {};
-            if (selectedFeaturesDistance.hasOwnProperty(featureId)) {
+            const selectedFeaturesDistances = selectedFeaturesDistancesByFilename.hasOwnProperty(filename) ? selectedFeaturesDistancesByFilename[filename] : {};
+            if (selectedFeaturesDistances.hasOwnProperty(featureId)) {
                 map.setFeatureState(
                     { source: featureSource, id: featureId },
                     { clickedselected: false }
@@ -347,7 +371,7 @@
                     { selected: true }
                 );
                 if (newTreeItemEl) {
-                    newTreeItemEl.style.border="2px solid #00FF00"
+                    newTreeItemEl.style.border="2px solid #00AAFF"
                 }
             } else {
                 map.setFeatureState(
@@ -377,7 +401,7 @@
             expandAll(filename);
             const clickedFeatureId = clickedFeatureIdByFilename.hasOwnProperty(filename) ? clickedFeatureIdByFilename[filename] : null;
             const clickedFeatureSource = clickedFeatureSourceByFilename.hasOwnProperty(filename) ? clickedFeatureSourceByFilename[filename] : null;
-            const selectedFeaturesDistance = selectedFeaturesDistancesByFilename.hasOwnProperty[filename] ? selectedFeaturesDistancesByFilename[filename] : {};
+            const selectedFeaturesDistances = selectedFeaturesDistancesByFilename.hasOwnProperty(filename) ? selectedFeaturesDistancesByFilename[filename] : {};
             if (clickedFeatureId !== null) {
                 if (clickedFeatureId == featureId) {
                     return unclickFeature(filename);
@@ -390,45 +414,18 @@
                     { source: clickedFeatureSource, id: clickedFeatureId },
                     { clicked: false }
                 );
-                if (selectedFeaturesDistance.hasOwnProperty(clickedFeatureId)) {
+                const currentTreeItemEl = document.querySelector(`[data-feature-id="${clickedFeatureId}"]`);
+                if (selectedFeaturesDistances.hasOwnProperty(clickedFeatureId)) {
                     map.setFeatureState(
                         { source: clickedFeatureSource, id: clickedFeatureId },
                         { selected: true }
                     );
-                } else {
-                    map.setFeatureState(
-                        { source: clickedFeatureSource, id: clickedFeatureId },
-                        { selected: false }
-                    );
-                }
-                const currentTreeItemEl = document.querySelector(`[data-feature-id="${clickedFeatureId}"]`);
-                if (selectedFeaturesDistance.hasOwnProperty(clickedFeatureId)) {
-                    map.setFeatureState(
-                        { source: clickedFeatureSource, id: featureId },
-                        { clickedselected: true }
-                    );
-                    map.setFeatureState(
-                        { source: clickedFeatureSource, id: featureId },
-                        { clicked: false }
-                    );
-                    map.setFeatureState(
-                        { source: clickedFeatureSource, id: featureId },
-                        { selected: false }
-                    );
                     if (currentTreeItemEl) {
-                        currentTreeItemEl.style.border="2px solid #FFFF00"
+                        currentTreeItemEl.style.border="2px solid #00AAFF"
                     }
                 } else {
                     map.setFeatureState(
-                        { source: clickedFeatureSource, id: featureId },
-                        { clickedselected: false }
-                    );
-                    map.setFeatureState(
-                        { source: clickedFeatureSource, id: featureId },
-                        { clicked: false }
-                    );
-                    map.setFeatureState(
-                        { source: clickedFeatureSource, id: featureId },
+                        { source: clickedFeatureSource, id: clickedFeatureId },
                         { selected: false }
                     );
                     if (currentTreeItemEl) {
@@ -438,7 +435,7 @@
             }
             const featureSource = `${featureId}-source`;
             const newTreeItemEl = document.querySelector(`[data-feature-id="${featureId}"]`);
-            if (selectedFeaturesDistance.hasOwnProperty(featureId)) {
+            if (selectedFeaturesDistances.hasOwnProperty(featureId)) {
                 map.setFeatureState(
                     { source: featureSource, id: featureId },
                     { clickedselected: true }
@@ -452,7 +449,7 @@
                     { selected: false }
                 );
                 if (newTreeItemEl) {
-                    newTreeItemEl.style.border="2px solid #FFFF00"
+                    newTreeItemEl.style.border="2px solid #FFAAFF"
                 }
             } else {
                 map.setFeatureState(
@@ -547,6 +544,17 @@
             updateDistanceTotalCounter(filename);
         }
 
+        function unselectAllFeatures() {
+            for (const filename in treeFeaturesByFilename) {
+                const selectedFeaturesDistances = selectedFeaturesDistancesByFilename[filename];
+                for (const featureId in selectedFeaturesDistances) {
+                    unselectFeature(filename, featureId);
+                    const checkbox = document.querySelector(`[data-feature-id="${featureId}"] input[type="checkbox"]`);
+                    checkbox.checked = false;
+                }
+            }
+        }
+
         function selectFeature(filename, featureId) {
             if (!featureId) {
                 return;
@@ -568,7 +576,7 @@
                     { selected: false }
                 );
                 if (newTreeItemEl) {
-                    newTreeItemEl.style.border="2px solid #FFFF00"
+                    newTreeItemEl.style.border="2px solid #FFAAFF"
                 }
             } else {
                 map.setFeatureState(
@@ -584,7 +592,7 @@
                     { selected: true }
                 );
                 if (newTreeItemEl) {
-                    newTreeItemEl.style.border="2px solid #00FF00"
+                    newTreeItemEl.style.border="2px solid #00AAFF"
                 }
             }
             if (!selectedFeaturesDistancesByFilename.hasOwnProperty(filename)) {
@@ -597,12 +605,6 @@
         function renderFeatures(filename) {
             const treeFeatures = treeFeaturesByFilename[filename];
             if (!treeFeatures) return;
-
-            let minLat = 91.0;
-            let minLlng = 181.0;
-            let maxLat = -91.0;
-            let maxLng = -181.0;
-
             for (const featureId in treeFeatures) {
                 const feature = treeFeatures[featureId];
 
@@ -618,14 +620,15 @@
                     'layout': {},
                     'paint': {
                         'line-color':  [
-                            'case',
-                            ['boolean', ['feature-state', 'clicked'], false],
-                            '#FF0000',
-                            ['boolean', ['feature-state', 'selected'], false],
-                            '#00FF00',
-                            ['boolean', ['feature-state', 'clickedselected'], false],
-                            '#FFFF00',
-                            '#0080FF'
+                            "case",
+                            ["boolean", ["feature-state", "clicked"], false],
+                            "#FF0000",
+                            ["boolean", ["feature-state", "selected"], false],
+                            "#00AAFF",
+                            ['boolean', ["feature-state", "clickedselected"], false],
+                            "#FFAAFF",
+                            // "#0080FF"
+                            "#777777"
                         ],
                         'line-width': 3
                     }
@@ -641,8 +644,6 @@
                 map.on('mouseleave', featureId, function() {
                     map.getCanvas().style.cursor = '';
                 });
-
-
             }
         }
 
@@ -658,7 +659,6 @@
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             return R * c * 3280.84;
         }
-
 
         function expandAll(filename) {
             document.querySelector(`[data-feature-id="${filename}"]`)
@@ -679,22 +679,28 @@
             const xmlDoc = parser.parseFromString(xmlString, "text/xml");
             const treeFeatures = {};
             const featureDistances = {};
-            const folders = [...xmlDoc.getElementsByTagName("Folder")].map(function(folder) {                
+            const foldersArray = [...xmlDoc.getElementsByTagName("Folder")];
+            const folders = foldersArray.map(function(folder) {                
                 const path = folderPath(folder);
+                // const otherFolders = folder.querySelectorAll(':scope [name="Folder"]');
+                // console.log("All other folders", [...otherFolders].length, otherFolders);
+                
                 const placemarks = folder.querySelectorAll(":scope>Placemark");
+                // console.log("All direct placemarks in this folder", [...placemarks].length);
+                // const children = [...placemarks, ...otherPlacemarks].map(function(placemark) {
                 const children = [...placemarks].map(function(placemark) {
                     const featureId = globalIdCounter++;
-                    let text = placemark.querySelector(':scope>name').innerHTML;
+                    const nameEl = placemark.querySelector(':scope>name');
+                    let text = nameEl ? nameEl.innerHTML : "";
                     const properties = {};
                     
-                    for (const data of [...placemark.getElementsByTagName('SimpleData')]) {
+                    for (const data of [...placemark.getElementsByTagName('Data'),...placemark.getElementsByTagName('SimpleData')]) {
                         const key = data.getAttribute("name");
                         if (key) {
                             const value = data.innerHTML;
                             properties[key] = value;
                         }
                     }
-                    // const featureIds = [];
                     const coordinateList = [...placemark.getElementsByTagName("coordinates")];
                     let distance = 0;
                     if (coordinateList.length > 0) {
@@ -705,6 +711,10 @@
                         
                         const coordinates = kmlCoordinates.split(/\s+/).map(point => {
                             const [lng, lat, alt] = point.split(',').map(Number);
+                            if (lat < minLat) minLat = lat;
+                            if (lng < minLng) minLng = lng;
+                            if (lat > maxLat) maxLat = lat;
+                            if (lng > maxLng) maxLng = lng;
                             return [lng, lat];
                         });
                         
@@ -712,7 +722,6 @@
                             type: "Feature",
                             id: featureId,
                             geometry: {
-                                // type: geometryType === "LineString" ? "Polygon": geometryType,
                                 type: geometryType,
                                 coordinates,
                             },
@@ -724,10 +733,6 @@
                             }
                             previousPoint = point;
                         }
-                        // featureIds.push({
-                        //     id: featureId,
-                        //     properties,
-                        // });
                     }
 
                     featureDistances[featureId] = distance;
@@ -771,8 +776,12 @@
             treeDataByFilename[filename] = treeData;
             
             renderTree(filename);
-            
             renderFeatures(filename);
+            
+            map.fitBounds(
+                [[minLng, maxLat], [maxLng, minLat]],
+                { padding: 100, duration: 2000 }
+            );
         }
 
         async function loadMapFileData(file) {
@@ -788,7 +797,7 @@
                 } catch (error) {
                     console.error("Error reading file:", error);
                 }
-            }   
+            }
         }
 
         function saveSnapshot() {
@@ -840,8 +849,11 @@
                     }
                 }
     
-                restoreMapState()
-                restoreTrees()
+                if (!initialized) {
+                    initialized = true;
+                    restoreMapState();
+                    restoreTrees();
+                }
             });
         }
         

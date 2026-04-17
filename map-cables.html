@@ -262,7 +262,15 @@
             document.querySelectorAll(`[data-tree="${filename}"]`).forEach(function(el) {
                 el.remove();
             })
+            for (const featureId in treeFeaturesByFilename[filename]) {
+                map.removeLayer(featureId);
+            }
+            delete treeDataByFilename[filename];
             delete treeFeaturesByFilename[filename];
+            delete clickedFeatureIdByFilename[filename];
+            delete clickedFeatureSourceByFilename[filename];
+            delete selectedFeaturesDistancesByFilename[filename];
+            delete featureDistancesByFilename[filename];
         }
         
         function renderTree(filename) {

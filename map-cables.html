@@ -15,12 +15,12 @@
             position: absolute;
             top: 0;
             bottom: 0;
-            left: 300px;
+            left: 320px;
             right: 0;
         }
         #controls {
             padding: 0;
-            max-width: 300px;
+            max-width: 320px;
         }
         #controls h3 {
             margin: 4px 4px 10px 4px;
@@ -46,7 +46,7 @@
         #tree {
             position: absolute;
             overflow-y: auto;
-            width: 300px;
+            width: 320px;
             left: 0;
             top: 114px;
             bottom: 40px;
@@ -104,18 +104,20 @@
         <button id="saveHtml" onclick="saveSnapshot()">Save Snapshot</button>
         <button id="unselectAll" onclick="unselectAllFeatures()">Unselect All</button>
         <div id="tree"></div>
+        <div id="featureForm"></div>
     </div>
 
     <div id="map"></div>
 
     <script>
         const treeDataByFilename = {};
-        const treeFeaturesByFilename = {};
+        const featureArrayByFilename = {};
+        const featurePropertiesByFilename = {};
         const clickedFeatureIdByFilename = {};
         const clickedFeatureSourceByFilename = {};
         const selectedFeaturesDistancesByFilename = {};
         const featureDistancesByFilename = {};
-        let globalIdCounter = 1;
+        let globalIdCounter = 10000000;
         let map = null;
         let initialized = false;
         let minLat = 91.0;
@@ -144,14 +146,21 @@
             return propertyEl;
         }
         
-        function folderPath(el) {
-            const folderNameEl = el.querySelector(':scope>name')
-            const folderName = folderNameEl.innerHTML
-            const parentEl = el.parentElement
-            if (!parentEl) return [folderName]
-            const parentFolder = parentEl.closest("Folder")
-            if (!parentFolder) return [folderName]
-            return [...folderPath(parentFolder), folderName]
+        function folderNodePath(node) {
+            const parentEl = node.parentElement
+            const folderNameNodes = node.getElementsByTagName('name');
+            if (folderNameNodes.length < 1) {
+                if (!parentEl) return [];
+                const parentFolder = parentEl.closest("Folder");
+                if (!parentFolder) return []
+                return folderNodePath(parentFolder)
+            } else {
+                const folderName = folderNameNodes[0].textContent;
+                if (!parentEl) return [folderName]
+                const parentFolder = parentEl.closest("Folder")
+                if (!parentFolder) return [folderName]
+                return [...folderNodePath(parentFolder), folderName]
+            }
         }
 
         function createTree(data, filename, detailsEl) {
@@ -183,7 +192,6 @@
                     deleteButton.textContent = "Delete";
                     heading.appendChild(deleteButton);
                 }
-                
                 const ul = document.createElement('ul');
                 data.children.forEach(function (child) {
                     ul.appendChild(createTree(child, filename, children));
@@ -194,7 +202,11 @@
                 li.appendChild(children);
             } else {
                 const distance = featureDistancesByFilename[filename][data.id];
-                li.textContent = `${data.text} = ${distance.toLocaleString(undefined, { maximumFractionDigits: 2 })} ft`;
+                if (distance) {
+                    li.textContent = `${data.text} = ${distance.toLocaleString(undefined, { maximumFractionDigits: 2 })} ft`;
+                } else {
+                    li.textContent = data.text;
+                }
                 li.className = "leaf";
                 const checkbox = document.createElement('input');
                 checkbox.type = 'checkbox';
@@ -209,8 +221,6 @@
                 li.appendChild(checkbox);
                 const button = document.createElement("button")
                 button.addEventListener('click', function(e) {
-                    // const el = e.currentTarget;
-                    // const featureId = el.parentElement.getAttribute("data-feature-id");
                     clickFeature(filename, data.id)
                 });
                 li.appendChild(button);
@@ -262,11 +272,11 @@
             document.querySelectorAll(`[data-tree="${filename}"]`).forEach(function(el) {
                 el.remove();
             })
-            for (const featureId in treeFeaturesByFilename[filename]) {
+            for (const featureId in featureArrayByFilename[filename]) {
                 map.removeLayer(featureId);
             }
             delete treeDataByFilename[filename];
-            delete treeFeaturesByFilename[filename];
+            delete featureArrayByFilename[filename];
             delete clickedFeatureIdByFilename[filename];
             delete clickedFeatureSourceByFilename[filename];
             delete selectedFeaturesDistancesByFilename[filename];
@@ -280,14 +290,6 @@
             rootUl.id = `tree-${filename}`;
             rootUl.appendChild(createTree(treeData, filename));
             document.querySelector("#tree").appendChild(rootUl);
-            // if (!existing) {
-            // } else {
-            //     document.querySelectorAll("[data-delete-tree]").forEach(function (el) {
-            //         el.onclick = function() {
-            //             deleteTree(el.getAttribute("data-delete-tree"));
-            //         }
-            //     })
-            // }
         }
 
         function renderTrees() {
@@ -305,18 +307,18 @@
             const treeScript = document.createElement('script');
             treeScript.setAttribute('data-tree', filename);
             treeScript.type = 'application/json';
-            const treeFeatures = treeFeaturesByFilename[filename];
+            const featureArray = featureArrayByFilename[filename];
             const clickedFeatureId = clickedFeatureIdByFilename.hasOwnProperty(filename) ? clickedFeatureIdByFilename[filename] : null;
             const selectedFeaturesDistances = selectedFeaturesDistancesByFilename.hasOwnProperty(filename) ? selectedFeaturesDistancesByFilename[filename] : {};
             const featureDistances = featureDistancesByFilename.hasOwnProperty(filename) ? featureDistancesByFilename[filename] : {};
-            treeScript.textContent = JSON.stringify({treeData, treeFeatures, clickedFeatureId, selectedFeaturesDistances, featureDistances});
+            treeScript.textContent = JSON.stringify({treeData, featureArray, clickedFeatureId, selectedFeaturesDistances, featureDistances});
             document.body.appendChild(treeScript);
         }
 
         function restoreTrees() {
             document.querySelectorAll("[data-tree]").forEach(function(tree) {
                 const filename = tree.getAttribute("data-tree");
-                const {treeData, treeFeatures,  clickedFeatureId, selectedFeaturesDistances, featureDistances} = JSON.parse(document.querySelector(`[data-tree="${filename}"]`).textContent);
+                const {treeData, featureArray,  clickedFeatureId, selectedFeaturesDistances, featureDistances} = JSON.parse(document.querySelector(`[data-tree="${filename}"]`).textContent);
                 
                 if (treeData) {
                     if (!treeDataByFilename.hasOwnProperty(filename)) {
@@ -324,11 +326,11 @@
                     }
                     treeDataByFilename[filename] = treeData;
                 }
-                if (treeFeatures) {
-                    if (!treeFeaturesByFilename.hasOwnProperty(filename)) {
-                        treeFeaturesByFilename[filename] = {}
+                if (featureArray) {
+                    if (!featureArrayByFilename.hasOwnProperty(filename)) {
+                        featureArrayByFilename[filename] = {}
                     }
-                    treeFeaturesByFilename[filename] = treeFeatures;
+                    featureArrayByFilename[filename] = featureArray;
                 }
                 if (featureDistances) {
                     if (!featureDistancesByFilename.hasOwnProperty(filename)) {
@@ -336,7 +338,7 @@
                     }
                     featureDistancesByFilename[filename] = featureDistances;
                 }
-                const maxIdCounter = Object.keys(treeFeatures).reduce(function(a, b){ return a > b ? a : b });
+                const maxIdCounter = Object.keys(featureArray).reduce(function(a, b){ return a > b ? a : b });
                 if (maxIdCounter > globalIdCounter) {
                     globalIdCounter = maxIdCounter + 1;
                 }
@@ -344,8 +346,8 @@
                 if (existing) {
                     existing.remove();
                 }
-                renderTree(filename);
-                renderFeatures(filename);
+                // renderTree(filename);
+                // renderFeatures(filename);
                 if (clickedFeatureId) {
                     clickFeature(filename, clickedFeatureId);
                 }
@@ -476,7 +478,7 @@
                     newTreeItemEl.style.border="2px solid #FF0000"
                 }
             }
-            const coordinates = treeFeaturesByFilename[filename][featureId].geometry.coordinates;
+            const coordinates = featureArrayByFilename[filename][featureId].geometry.coordinates;
             if (coordinates) {
                 map.fitBounds(bbox(coordinates), {
                     padding: 100,
@@ -553,7 +555,7 @@
         }
 
         function unselectAllFeatures() {
-            for (const filename in treeFeaturesByFilename) {
+            for (const filename in featureArrayByFilename) {
                 const selectedFeaturesDistances = selectedFeaturesDistancesByFilename[filename];
                 for (const featureId in selectedFeaturesDistances) {
                     unselectFeature(filename, featureId);
@@ -611,10 +613,10 @@
         }
 
         function renderFeatures(filename) {
-            const treeFeatures = treeFeaturesByFilename[filename];
-            if (!treeFeatures) return;
-            for (const featureId in treeFeatures) {
-                const feature = treeFeatures[featureId];
+            const featureArray = featureArrayByFilename[filename];
+            if (!featureArray) return;
+            for (const featureId in featureArray) {
+                const feature = featureArray[featureId];
 
                 map.addSource(`${featureId}-source`, {
                     type: "geojson",
@@ -635,7 +637,6 @@
                             "#00AAFF",
                             ['boolean', ["feature-state", "clickedselected"], false],
                             "#FFAAFF",
-                            // "#0080FF"
                             "#777777"
                         ],
                         'line-width': 3
@@ -682,40 +683,155 @@
             });
         }
 
+        function renderFeatureSelectForm(filename) {
+            const formRootEl = document.getElementById("featureForm");
+            const formEl = document.createElement("form");
+            const selectEl = document.createElement("select");
+            
+            const featureProperties = featurePropertiesByFilename[filename];
+            for (const property in featureProperties) {
+                const divEl = document.createElement("div");
+                const labelEl = document.createElement("label");
+                labelEl.textContent = property;
+                const selectEl = document.createElement("select");
+                const propertyValues = featureProperties[property];
+                for (const value in propertyValues) {
+                    const optionEl = document.createElement("option");
+                    optionEl.value = value;
+                    optionEl.text = value;
+                    selectEl.appendChild(optionEl);
+                }
+                labelEl.appendChild(selectEl);
+                divEl.appendChild(labelEl);
+                formEl.appendChild(divEl);
+            }
+            formRootEl.appendChild(formEl);
+        }
+
         async function parseMapFileData(filename, xmlString) {
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(xmlString, "text/xml");
-            const treeFeatures = {};
+            const featureArray = {};
             const featureDistances = {};
-            const foldersArray = [...xmlDoc.getElementsByTagName("Folder")];
-            const folders = foldersArray.map(function(folder) {                
-                const path = folderPath(folder);
-                // const otherFolders = folder.querySelectorAll(':scope [name="Folder"]');
-                // console.log("All other folders", [...otherFolders].length, otherFolders);
-                
-                const placemarks = folder.querySelectorAll(":scope>Placemark");
-                // console.log("All direct placemarks in this folder", [...placemarks].length);
-                // const children = [...placemarks, ...otherPlacemarks].map(function(placemark) {
+            const placemarksMapByFolderPath = new Map();
+            const placemarksMapByFolderPathKeys = [];
+            
+            const featureProperties = {};
+
+            const mentionedFolders = xmlDoc.querySelectorAll('[name="Folder"]');
+            const mentionedFoldersPlacemarks = {}
+            for (const nodeWithMention of mentionedFolders) {
+                const folderFullPath = nodeWithMention.textContent.trim();
+
+
+                if (folderFullPath && !folderFullPath.toLowerCase().includes("descriptor")) {
+
+
+                    const placemark = nodeWithMention.closest("Placemark");
+                    if (mentionedFoldersPlacemarks.hasOwnProperty(folderFullPath)) {
+                        mentionedFoldersPlacemarks[folderFullPath].push(placemark);
+                    } else {
+                        mentionedFoldersPlacemarks[folderFullPath] = [placemark];
+                    }
+                }
+            }
+            for (const folderFullPath in mentionedFoldersPlacemarks) {
+                const placemarks = mentionedFoldersPlacemarks[folderFullPath];
+                const fullPathArray = folderFullPath.split('-').filter((item) => item);
+                const name = fullPathArray.at(-1);
+                const folderValue = { placemarks, name };
+                placemarksMapByFolderPath.set(fullPathArray, folderValue);
+                placemarksMapByFolderPathKeys.push(fullPathArray);
+            }
+            const foldersNodesArray = [...xmlDoc.getElementsByTagName("Folder")];
+            foldersNodesArray.forEach(function(folder) {
+                const path = folderNodePath(folder);
+                const folderValue = {
+                    placemarks: folder.querySelectorAll(":scope>Placemark"),
+                    name: folder.querySelector(':scope>name').textContent.trim(),
+                };
+                placemarksMapByFolderPath.set(path, folderValue);
+                placemarksMapByFolderPathKeys.push(path);
+            });
+            let maxLevel = 0;
+            const folders = placemarksMapByFolderPathKeys.map(function(path) {
+                const {placemarks, name} = placemarksMapByFolderPath.get(path);
                 const children = [...placemarks].map(function(placemark) {
                     const featureId = globalIdCounter++;
-                    const nameEl = placemark.querySelector(':scope>name');
-                    let text = nameEl ? nameEl.innerHTML : "";
+                    const nameNode = placemark.querySelector(':scope>name');
+                    let text = nameNode ? nameNode.textContent.trim() : "";
                     const properties = {};
                     
-                    for (const data of [...placemark.getElementsByTagName('Data'),...placemark.getElementsByTagName('SimpleData')]) {
+                    for (const data of [
+                        ...placemark.getElementsByTagName('Data'),
+                        ...placemark.getElementsByTagName('SimpleData'),
+                    ]) {
                         const key = data.getAttribute("name");
                         if (key) {
-                            const value = data.innerHTML;
+                            const value = data.textContent.trim();
                             properties[key] = value;
                         }
                     }
+
+                    for (key in properties) {
+                        if (key.length > 0) {
+
+                            const value = properties[key];
+                            /* featureProperties schema:
+                                {
+                                    property name: {
+                                        property value: [
+                                            feature id,
+                                            feature id,
+                                            etc...
+                                        ],
+                                        property value: [
+                                            feature id,
+                                            feature id,
+                                            etc...
+                                        ],
+                                        etc...
+                                    }
+                                    property name: {
+                                        property value: [
+                                            feature id,
+                                            feature id,
+                                            etc...
+                                        ],
+                                        property value: [
+                                            feature id,
+                                            feature id,
+                                            etc...
+                                        ],
+                                        etc...
+                                    },
+                                    etc...
+                                }
+                            */
+                            
+                            if (!featureProperties.hasOwnProperty(key)) {
+                                featureProperties[key] = {};
+                                featureProperties[key][value] = [];
+                            } else {
+                                if (!featureProperties[key].hasOwnProperty(value)) {
+                                    featureProperties[key][value] = [];
+                                }
+                            }
+                            featureProperties[key][value].push(featureId);
+                        }
+                    }
+
+
+
+
+
                     const coordinateList = [...placemark.getElementsByTagName("coordinates")];
                     let distance = 0;
-                    if (coordinateList.length > 0) {
+                    if (name && coordinateList.length > 0) {
                         const el = coordinateList[0]
                         const geometryType = el.parentElement.tagName;
-                        
-                        const kmlCoordinates = el.innerHTML.trim();
+                    
+                        const kmlCoordinates = el.textContent.trim();
                         
                         const coordinates = kmlCoordinates.split(/\s+/).map(point => {
                             const [lng, lat, alt] = point.split(',').map(Number);
@@ -726,7 +842,7 @@
                             return [lng, lat];
                         });
                         
-                        treeFeatures[featureId] = {
+                        featureArray[featureId] = {
                             type: "Feature",
                             id: featureId,
                             geometry: {
@@ -751,39 +867,129 @@
                         properties,
                     }
                 });
-                const text = folder.querySelector(':scope>name').innerHTML;
+                const level = path.length;
+                if (level > maxLevel) {
+                    maxLevel = level;
+                }
                 return {
                     id: globalIdCounter++,
-                    text,
+                    text: name,
                     path,
-                    level: path.length,
+                    level,
                     children,
                 }
-            })
+            });
 
+            const foldersByLevel = {};
             for (const folder of folders) {
-                const parents = folder.path.slice(0, folder.path.length -1);
-
-                for (const other of folders) {
-                    const possible = other.path;
-                    if (parents.length === possible.length && 
-                            parents.every((val, index) => val === possible[index])) {
-                        other.children.push(folder);
-                    }
+                const level = folder.level;
+                if (foldersByLevel.hasOwnProperty(level)) {
+                    foldersByLevel[level].push(folder);
+                } else {
+                    foldersByLevel[level] = [folder];
                 }
             }
 
-            treeFeaturesByFilename[filename] = treeFeatures;
-            featureDistancesByFilename[filename] = featureDistances;
-            
             const treeData = {
                 id: filename,
                 text: filename,
-                children: folders.filter((folder) => folder.path.length === 1),
+                children: [],
+            };
+            for (const level in foldersByLevel) {                
+                for (const folder of folders) {
+                    if (folder.level == level) {
+                        const path = folder.path;
+                        let levelChildren = treeData.children;
+                        const folderName = path.slice(-1);
+                        const folderParents = path.slice(0, -1);
+                        for (const item of folderParents) {
+                            let foundChild = levelChildren.find(child => child.text == item);
+                            if (foundChild) {
+                                levelChildren = foundChild.children;
+                            } else {
+                                const newChild = {
+                                    "text": item,
+                                    "children": [],
+                                }
+                                levelChildren.push(newChild);
+                                levelChildren = newChild.children;
+                            }
+                        }
+                        console.log(JSON.stringify(folder.children.length))
+                        levelChildren = [...levelChildren, folder.children];
+                    }
+                };
             }
-            treeDataByFilename[filename] = treeData;
+            // console.log({treeData});
+
+            // for (let level = 1; level < maxLevel; level++) {
+            //     const levelFolders
+            // }
+
+            // const tempFolderTreeStructure = {}
+            // for (const folder of folders) {
+            //     let branch = tempFolderTreeStructure;
+            //     console.log(folder.path);
+            //     for (let i = 0; i < folder.path.length; i++) {
+            //         const item = folder.path[i]
+            //         console.log(item);
+            //         let segment;
+            //         if (i === folder.path.length - 1) {
+            //             segment = {
+            //                 id: folder.id,
+            //                 text: folder.text,
+            //                 path: folder.path,
+            //                 level: folder.level,
+            //                 children: folder.children,
+            //             };
+            //         } else {
+            //             segment = {};
+            //         }
+            //         if (!branch.hasOwnProperty(item)) {
+            //             branch[item] = segment;
+            //             branch = segment;
+            //         }
+            //     }
+            // }
+        
+                
             
-            renderTree(filename);
+            // for (const folder of folders) {
+                
+            //     const parents = folder.path.slice(0, folder.path.length -1);
+            //     for (const other of folders) {
+            //         if (other.text === top) {
+            //             folder.path = folder.path.slice(1);
+            //             other.children.push(folder);
+            //         }
+            //         // const possible = other.path;
+            //         // if (parents.length === possible.length && 
+            //         //         parents.every((val, index) => val === possible[index])) {
+            //         //     other.children.push(folder);
+            //         // }
+            //     }
+            // }
+            // console.log({tempFolderTreeStructure})
+
+            
+            featureArrayByFilename[filename] = featureArray;
+            featureDistancesByFilename[filename] = featureDistances;
+
+
+            featurePropertiesByFilename[filename] = featureProperties;
+            
+
+            // const treeData = {
+            //     id: filename,
+            //     text: filename,
+            //     children: folders.filter((folder) => folder.path.length === 1),
+            // }
+            treeDataByFilename[filename] = treeData;
+            // console.log({treeData});
+            
+            renderFeatureSelectForm(filename);
+
+            // renderTree(filename);
             renderFeatures(filename);
             
             map.fitBounds(
@@ -810,7 +1016,7 @@
 
         function saveSnapshot() {
             const localTimestamp = new Date(new Date() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, -1);
-            for (const filename in treeFeaturesByFilename) {
+            for (const filename in featureArrayByFilename) {
                 persistTree(filename);
             }
             persistMapState(localTimestamp);
